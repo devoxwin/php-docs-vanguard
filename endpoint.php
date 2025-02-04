@@ -38,7 +38,7 @@ error_reporting(E_ALL);
 // ------------------------------
 // CA Certificate Validation
 // ------------------------------
-$ca_cert = "/home/cnnatoor/ssl/certs/DigiCertGlobalRootCA.crt.pem"; // Updated file path
+$ca_cert = __DIR__ . "/DigiCertGlobalRootCA.crt.pem"; // Updated file path
 
 if (!file_exists($ca_cert)) {
     error_log("CA certificate file not found at: " . $ca_cert);
