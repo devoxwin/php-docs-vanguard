@@ -1,6 +1,6 @@
 <?php
 // ------------------------------
-// Optional: Clear OPcache
+// Optional: Clear OPcache (if enabled)
 // ------------------------------
 if (function_exists('opcache_reset')) {
     opcache_reset();
@@ -19,7 +19,7 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept, Origin");
 
-// If this is a preflight OPTIONS request, exit immediately.
+// Exit if preflight request.
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
 }
@@ -34,61 +34,6 @@ header("Content-Type: application/json");
 // ------------------------------
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
-
-// ------------------------------
-// CA Certificate Validation
-// ------------------------------
-$ca_cert = __DIR__ . "/DigiCertGlobalRootCA.crt.pem"; // Updated file path
-
-if (!file_exists($ca_cert)) {
-    error_log("CA certificate file not found at: " . $ca_cert);
-    echo json_encode([
-        "success" => false,
-        "error"   => "CA certificate file not found at: " . $ca_cert
-    ]);
-    exit;
-}
-
-if (!is_readable($ca_cert)) {
-    error_log("CA certificate file is not readable at: " . $ca_cert);
-    echo json_encode([
-        "success" => false,
-        "error"   => "CA certificate file is not readable at: " . $ca_cert
-    ]);
-    exit;
-}
-
-$certContent = file_get_contents($ca_cert);
-if ($certContent === false) {
-    error_log("Unable to read CA certificate file at: " . $ca_cert);
-    echo json_encode([
-        "success" => false,
-        "error"   => "Unable to read CA certificate file at: " . $ca_cert
-    ]);
-    exit;
-}
-
-if (strpos($certContent, "-----BEGIN CERTIFICATE-----") === false) {
-    error_log("The file at " . $ca_cert . " does not contain a valid certificate.");
-    echo json_encode([
-        "success" => false,
-        "error"   => "The file at " . $ca_cert . " does not contain a valid certificate."
-    ]);
-    exit;
-}
-
-error_log("CA certificate file validated successfully at: " . $ca_cert);
-
-// ------------------------------
-// Retrieve and Log the Server's Public IP Address
-// ------------------------------
-$publicIp = @file_get_contents('https://api.ipify.org');
-if ($publicIp === false) {
-    error_log("Unable to determine public IP address.");
-    $publicIp = "unknown";
-} else {
-    error_log("Server Public IP: " . $publicIp);
-}
 
 // ------------------------------
 // Retrieve and Validate JSON Input
@@ -111,13 +56,41 @@ $password = 'sTP5rE[>cw6q&Nv4';     // Provided password
 $port     = 3306;                 // Port number (usually 3306)
 
 // ------------------------------
-// (Optional) Debug: Resolve the Hostname
+// SSL Certificate Settings
 // ------------------------------
-$resolved_ip = gethostbyname($host);
-error_log("Resolved IP for host '$host': $resolved_ip");
+$ca_cert = __DIR__ . "/DigiCertGlobalRootCA.crt.pem";  // CA certificate file in same folder
+
+if (!file_exists($ca_cert)) {
+    error_log("CA certificate file not found at: " . $ca_cert);
+    echo json_encode(["success" => false, "error" => "CA certificate file not found at: " . $ca_cert]);
+    exit;
+}
+if (!is_readable($ca_cert)) {
+    error_log("CA certificate file is not readable at: " . $ca_cert);
+    echo json_encode(["success" => false, "error" => "CA certificate file is not readable at: " . $ca_cert]);
+    exit;
+}
+$certContent = file_get_contents($ca_cert);
+if ($certContent === false || strpos($certContent, "-----BEGIN CERTIFICATE-----") === false) {
+    error_log("The file at " . $ca_cert . " does not contain a valid certificate.");
+    echo json_encode(["success" => false, "error" => "The file at " . $ca_cert . " does not contain a valid certificate."]);
+    exit;
+}
+error_log("CA certificate file validated successfully at: " . $ca_cert);
 
 // ------------------------------
-// Initialize and Establish the MySQLi Connection with SSL and Retry Logic
+// Retrieve and Log the Server's Public IP Address
+// ------------------------------
+$publicIp = @file_get_contents('https://api.ipify.org');
+if ($publicIp === false) {
+    error_log("Unable to determine public IP address.");
+    $publicIp = "unknown";
+} else {
+    error_log("Server Public IP: " . $publicIp);
+}
+
+// ------------------------------
+// Initialize MySQLi and Retry Connection Loop
 // ------------------------------
 $con = mysqli_init();
 if (!$con) {
@@ -125,7 +98,6 @@ if (!$con) {
     echo json_encode(["success" => false, "error" => "mysqli_init() failed"]);
     exit;
 }
-
 mysqli_ssl_set($con, NULL, NULL, $ca_cert, NULL, NULL);
 
 $maxAttempts = 5;
@@ -138,33 +110,81 @@ while ($attempt < $maxAttempts && !$connected) {
     if (!$connected) {
         error_log("Attempt $attempt failed: " . mysqli_connect_error());
         if ($attempt < $maxAttempts) {
-            sleep(3); // Wait 3 seconds before next attempt
+            sleep(3);
         }
     }
 }
-
 if (!$connected) {
     $err = mysqli_connect_error();
     error_log("Database connection error after $maxAttempts attempts: " . $err);
     echo json_encode(["success" => false, "error" => "Database connection error: " . $err, "public_ip" => $publicIp]);
     exit;
 }
-
 mysqli_set_charset($con, "utf8mb4");
+
+// ------------------------------
+// Group Battles by Unique Signature
+// ------------------------------
+$grouped = []; // associative array: key => ['battle' => battleObject, 'count' => number]
+foreach ($data['battles'] as $battle) {
+    // Create a unique key based on all relevant fields.
+    // Order: defending: id, name, ruler, alliance, team; attacking: id, name, ruler, alliance, team; timestamp; result.
+    $key = $battle['defending_nation']['id'] . '|' .
+           $battle['defending_nation']['name'] . '|' .
+           $battle['defending_nation']['ruler'] . '|' .
+           $battle['defending_nation']['alliance'] . '|' .
+           $battle['defending_nation']['team'] . '|' .
+           $battle['attacking_nation']['id'] . '|' .
+           $battle['attacking_nation']['name'] . '|' .
+           $battle['attacking_nation']['ruler'] . '|' .
+           $battle['attacking_nation']['alliance'] . '|' .
+           $battle['attacking_nation']['team'] . '|' .
+           $battle['timestamp'] . '|' .
+           $battle['result'];
+    if (!isset($grouped[$key])) {
+        $grouped[$key] = ['battle' => $battle, 'count' => 0];
+    }
+    $grouped[$key]['count']++;
+}
+error_log("Grouped battles count: " . count($grouped));
+
+// ------------------------------
+// Prepare the SELECT Statement to Check for Existing Records
+// ------------------------------
+$selectSql = "SELECT 1 FROM nuke_data WHERE 
+    defending_nation_id = ? AND 
+    defending_nation_name = ? AND 
+    defending_nation_ruler = ? AND 
+    defending_nation_alliance = ? AND 
+    defending_nation_team = ? AND 
+    attacking_nation_id = ? AND 
+    attacking_nation_name = ? AND 
+    attacking_nation_ruler = ? AND 
+    attacking_nation_alliance = ? AND 
+    attacking_nation_team = ? AND 
+    `timestamp` = ? AND 
+    result = ? LIMIT 1";
+$selectStmt = mysqli_prepare($con, $selectSql);
+if (!$selectStmt) {
+    $err = mysqli_error($con);
+    error_log("SELECT statement preparation error: " . $err);
+    echo json_encode(["success" => false, "error" => "SELECT statement preparation error: " . $err]);
+    exit;
+}
 
 // ------------------------------
 // Prepare the INSERT Statement
 // ------------------------------
-$sql = "INSERT INTO nuke_data (
+$insertSql = "INSERT INTO nuke_data (
     defending_nation_id, defending_nation_name, defending_nation_ruler, defending_nation_alliance, defending_nation_team,
     attacking_nation_id, attacking_nation_name, attacking_nation_ruler, attacking_nation_alliance, attacking_nation_team,
     `timestamp`, result
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-$stmt = mysqli_prepare($con, $sql);
-if (!$stmt) {
+$insertStmt = mysqli_prepare($con, $insertSql);
+if (!$insertStmt) {
     $err = mysqli_error($con);
-    error_log("Statement preparation error: " . $err);
-    echo json_encode(["success" => false, "error" => "Statement preparation error: " . $err]);
+    error_log("INSERT statement preparation error: " . $err);
+    echo json_encode(["success" => false, "error" => "INSERT statement preparation error: " . $err]);
     exit;
 }
 
@@ -175,36 +195,62 @@ mysqli_autocommit($con, false);
 $allSuccess = true;
 $errors = [];
 
-// ------------------------------
-// Loop Through the Battles and Insert Data
-// ------------------------------
-foreach ($data['battles'] as $index => $battle) {
-    $def = $battle['defending_nation'];
-    $att = $battle['attacking_nation'];
-    $timestamp = $battle['timestamp'];
-    $result = $battle['result'];
+// Loop over each unique battle group.
+foreach ($grouped as $key => $group) {
+    $battle = $group['battle'];
+    $countToInsert = $group['count'];
 
+    // Bind parameters to the SELECT statement to check if the record exists.
     mysqli_stmt_bind_param(
-        $stmt,
+        $selectStmt,
         "ssssssssssss",
-        $def['id'],
-        $def['name'],
-        $def['ruler'],
-        $def['alliance'],
-        $def['team'],
-        $att['id'],
-        $att['name'],
-        $att['ruler'],
-        $att['alliance'],
-        $att['team'],
-        $timestamp,
-        $result
+        $battle['defending_nation']['id'],
+        $battle['defending_nation']['name'],
+        $battle['defending_nation']['ruler'],
+        $battle['defending_nation']['alliance'],
+        $battle['defending_nation']['team'],
+        $battle['attacking_nation']['id'],
+        $battle['attacking_nation']['name'],
+        $battle['attacking_nation']['ruler'],
+        $battle['attacking_nation']['alliance'],
+        $battle['attacking_nation']['team'],
+        $battle['timestamp'],
+        $battle['result']
     );
+    mysqli_stmt_execute($selectStmt);
+    mysqli_stmt_store_result($selectStmt);
+    $exists = mysqli_stmt_num_rows($selectStmt) > 0;
+    mysqli_stmt_free_result($selectStmt);
 
-    if (!mysqli_stmt_execute($stmt)) {
-        $allSuccess = false;
-        $errors[] = "Error on battle index $index: " . mysqli_stmt_error($stmt);
-        error_log("Error on battle index $index: " . mysqli_stmt_error($stmt));
+    // If a record already exists, skip insertion.
+    if ($exists) {
+        error_log("Record already exists for key: " . $key . ". Skipping insertion.");
+        continue;
+    }
+
+    // Otherwise, insert the record as many times as it appears in this scrape.
+    for ($i = 0; $i < $countToInsert; $i++) {
+        mysqli_stmt_bind_param(
+            $insertStmt,
+            "ssssssssssss",
+            $battle['defending_nation']['id'],
+            $battle['defending_nation']['name'],
+            $battle['defending_nation']['ruler'],
+            $battle['defending_nation']['alliance'],
+            $battle['defending_nation']['team'],
+            $battle['attacking_nation']['id'],
+            $battle['attacking_nation']['name'],
+            $battle['attacking_nation']['ruler'],
+            $battle['attacking_nation']['alliance'],
+            $battle['attacking_nation']['team'],
+            $battle['timestamp'],
+            $battle['result']
+        );
+        if (!mysqli_stmt_execute($insertStmt)) {
+            $allSuccess = false;
+            $errors[] = "Error inserting battle with key $key: " . mysqli_stmt_error($insertStmt);
+            error_log("Error inserting battle with key $key: " . mysqli_stmt_error($insertStmt));
+        }
     }
 }
 
@@ -220,8 +266,9 @@ if ($allSuccess) {
 }
 
 // ------------------------------
-// Clean Up: Close the Statement and Connection
+// Clean Up: Close the Statements and Connection
 // ------------------------------
-mysqli_stmt_close($stmt);
+mysqli_stmt_close($selectStmt);
+mysqli_stmt_close($insertStmt);
 mysqli_close($con);
 ?>
