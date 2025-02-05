@@ -1,13 +1,13 @@
 <?php
 // ------------------------------
-// Optional: Clear OPcache (if enabled)
+// Optional: Clear OPcache if enabled
 // ------------------------------
 if (function_exists('opcache_reset')) {
     opcache_reset();
 }
 
 // ------------------------------
-// Prevent Client-side Caching
+// Prevent Client-Side Caching
 // ------------------------------
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
@@ -18,8 +18,6 @@ header("Pragma: no-cache");
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept, Origin");
-
-// Exit if preflight request.
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
 }
@@ -36,13 +34,13 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 // ------------------------------
-// Retrieve and Validate JSON Input
+// Retrieve and Decode JSON Input
 // ------------------------------
 $input = file_get_contents('php://input');
 $data = json_decode($input, true);
 
-if (!$data || !isset($data['battles']) || !is_array($data['battles'])) {
-    echo json_encode(["success" => false, "error" => "No battles data received"]);
+if (!$data) {
+    echo json_encode(["success" => false, "error" => "Invalid or empty JSON received"]);
     exit;
 }
 
@@ -58,7 +56,7 @@ $port     = 3306;                 // Port number (usually 3306)
 // ------------------------------
 // SSL Certificate Settings
 // ------------------------------
-$ca_cert = __DIR__ . "/DigiCertGlobalRootCA.crt.pem";  // CA certificate file in same folder
+$ca_cert = __DIR__ . "/DigiCertGlobalRootCA.crt.pem";  // CA certificate file in the same folder
 
 if (!file_exists($ca_cert)) {
     error_log("CA certificate file not found at: " . $ca_cert);
@@ -90,7 +88,7 @@ if ($publicIp === false) {
 }
 
 // ------------------------------
-// Initialize MySQLi and Retry Connection Loop
+// Initialize and Establish the MySQLi Connection with SSL and Retry Logic
 // ------------------------------
 $con = mysqli_init();
 if (!$con) {
@@ -122,153 +120,251 @@ if (!$connected) {
 }
 mysqli_set_charset($con, "utf8mb4");
 
-// ------------------------------
-// Group Battles by Unique Signature
-// ------------------------------
-$grouped = []; // associative array: key => ['battle' => battleObject, 'count' => number]
-foreach ($data['battles'] as $battle) {
-    // Create a unique key based on all relevant fields.
-    // Order: defending: id, name, ruler, alliance, team; attacking: id, name, ruler, alliance, team; timestamp; result.
-    $key = $battle['defending_nation']['id'] . '|' .
-           $battle['defending_nation']['name'] . '|' .
-           $battle['defending_nation']['ruler'] . '|' .
-           $battle['defending_nation']['alliance'] . '|' .
-           $battle['defending_nation']['team'] . '|' .
-           $battle['attacking_nation']['id'] . '|' .
-           $battle['attacking_nation']['name'] . '|' .
-           $battle['attacking_nation']['ruler'] . '|' .
-           $battle['attacking_nation']['alliance'] . '|' .
-           $battle['attacking_nation']['team'] . '|' .
-           $battle['timestamp'] . '|' .
-           $battle['result'];
-    if (!isset($grouped[$key])) {
-        $grouped[$key] = ['battle' => $battle, 'count' => 0];
-    }
-    $grouped[$key]['count']++;
-}
-error_log("Grouped battles count: " . count($grouped));
+// Initialize a response array to capture module-specific responses.
+$response = [];
 
-// ------------------------------
-// Prepare the SELECT Statement to Check for Existing Records
-// ------------------------------
-$selectSql = "SELECT 1 FROM nuke_data WHERE 
-    defending_nation_id = ? AND 
-    defending_nation_name = ? AND 
-    defending_nation_ruler = ? AND 
-    defending_nation_alliance = ? AND 
-    defending_nation_team = ? AND 
-    attacking_nation_id = ? AND 
-    attacking_nation_name = ? AND 
-    attacking_nation_ruler = ? AND 
-    attacking_nation_alliance = ? AND 
-    attacking_nation_team = ? AND 
-    `timestamp` = ? AND 
-    result = ? LIMIT 1";
-$selectStmt = mysqli_prepare($con, $selectSql);
-if (!$selectStmt) {
-    $err = mysqli_error($con);
-    error_log("SELECT statement preparation error: " . $err);
-    echo json_encode(["success" => false, "error" => "SELECT statement preparation error: " . $err]);
-    exit;
-}
+// ==============================
+// Module 1: Nuclear Attack Data (nuke_data)
+// ==============================
+if (isset($data['battles']) && is_array($data['battles'])) {
+    // Prepare the INSERT statement for nuke_data.
+    // (Assuming the nuke_data table has columns matching these keys.)
+    $nukeSql = "INSERT INTO nuke_data (
+        defending_nation_id, defending_nation_name, defending_nation_ruler, defending_nation_alliance, defending_nation_team,
+        attacking_nation_id, attacking_nation_name, attacking_nation_ruler, attacking_nation_alliance, attacking_nation_team,
+        `timestamp`, result
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    $nukeStmt = mysqli_prepare($con, $nukeSql);
+    if (!$nukeStmt) {
+        $err = mysqli_error($con);
+        error_log("nuke_data INSERT statement preparation error: " . $err);
+        $response['nuke_data'] = ["success" => false, "error" => "nuke_data INSERT statement preparation error: " . $err];
+    } else {
+        mysqli_autocommit($con, false);
+        $allNukeSuccess = true;
+        $nukeErrors = [];
 
-// ------------------------------
-// Prepare the INSERT Statement
-// ------------------------------
-$insertSql = "INSERT INTO nuke_data (
-    defending_nation_id, defending_nation_name, defending_nation_ruler, defending_nation_alliance, defending_nation_team,
-    attacking_nation_id, attacking_nation_name, attacking_nation_ruler, attacking_nation_alliance, attacking_nation_team,
-    `timestamp`, result
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-$insertStmt = mysqli_prepare($con, $insertSql);
-if (!$insertStmt) {
-    $err = mysqli_error($con);
-    error_log("INSERT statement preparation error: " . $err);
-    echo json_encode(["success" => false, "error" => "INSERT statement preparation error: " . $err]);
-    exit;
-}
-
-// ------------------------------
-// Begin Transaction for Atomic Inserts
-// ------------------------------
-mysqli_autocommit($con, false);
-$allSuccess = true;
-$errors = [];
-
-// Loop over each unique battle group.
-foreach ($grouped as $key => $group) {
-    $battle = $group['battle'];
-    $countToInsert = $group['count'];
-
-    // Bind parameters to the SELECT statement to check if the record exists.
-    mysqli_stmt_bind_param(
-        $selectStmt,
-        "ssssssssssss",
-        $battle['defending_nation']['id'],
-        $battle['defending_nation']['name'],
-        $battle['defending_nation']['ruler'],
-        $battle['defending_nation']['alliance'],
-        $battle['defending_nation']['team'],
-        $battle['attacking_nation']['id'],
-        $battle['attacking_nation']['name'],
-        $battle['attacking_nation']['ruler'],
-        $battle['attacking_nation']['alliance'],
-        $battle['attacking_nation']['team'],
-        $battle['timestamp'],
-        $battle['result']
-    );
-    mysqli_stmt_execute($selectStmt);
-    mysqli_stmt_store_result($selectStmt);
-    $exists = mysqli_stmt_num_rows($selectStmt) > 0;
-    mysqli_stmt_free_result($selectStmt);
-
-    // If a record already exists, skip insertion.
-    if ($exists) {
-        error_log("Record already exists for key: " . $key . ". Skipping insertion.");
-        continue;
-    }
-
-    // Otherwise, insert the record as many times as it appears in this scrape.
-    for ($i = 0; $i < $countToInsert; $i++) {
-        mysqli_stmt_bind_param(
-            $insertStmt,
-            "ssssssssssss",
-            $battle['defending_nation']['id'],
-            $battle['defending_nation']['name'],
-            $battle['defending_nation']['ruler'],
-            $battle['defending_nation']['alliance'],
-            $battle['defending_nation']['team'],
-            $battle['attacking_nation']['id'],
-            $battle['attacking_nation']['name'],
-            $battle['attacking_nation']['ruler'],
-            $battle['attacking_nation']['alliance'],
-            $battle['attacking_nation']['team'],
-            $battle['timestamp'],
-            $battle['result']
-        );
-        if (!mysqli_stmt_execute($insertStmt)) {
-            $allSuccess = false;
-            $errors[] = "Error inserting battle with key $key: " . mysqli_stmt_error($insertStmt);
-            error_log("Error inserting battle with key $key: " . mysqli_stmt_error($insertStmt));
+        // Loop through each battle record.
+        foreach ($data['battles'] as $index => $battle) {
+            mysqli_stmt_bind_param(
+                $nukeStmt,
+                "ssssssssssss",
+                $battle['defending_nation']['id'],
+                $battle['defending_nation']['name'],
+                $battle['defending_nation']['ruler'],
+                $battle['defending_nation']['alliance'],
+                $battle['defending_nation']['team'],
+                $battle['attacking_nation']['id'],
+                $battle['attacking_nation']['name'],
+                $battle['attacking_nation']['ruler'],
+                $battle['attacking_nation']['alliance'],
+                $battle['attacking_nation']['team'],
+                $battle['timestamp'],
+                $battle['result']
+            );
+            if (!mysqli_stmt_execute($nukeStmt)) {
+                $allNukeSuccess = false;
+                $nukeErrors[] = "Error on battle index $index: " . mysqli_stmt_error($nukeStmt);
+                error_log("Error on battle index $index: " . mysqli_stmt_error($nukeStmt));
+            }
         }
+        if ($allNukeSuccess) {
+            mysqli_commit($con);
+            $response['nuke_data'] = ["success" => true];
+        } else {
+            mysqli_rollback($con);
+            $response['nuke_data'] = ["success" => false, "error" => implode("; ", $nukeErrors)];
+        }
+        mysqli_stmt_close($nukeStmt);
+    }
+}
+
+// ==============================
+// Module 2: War Damage Data (war_results)
+// ==============================
+if (isset($data['wars']) && is_array($data['wars'])) {
+    // Prepare statements for UPSERT logic.
+    // First, a SELECT statement to check for an existing war record by war_id.
+    $selectSql = "SELECT war_id FROM war_results WHERE war_id = ? LIMIT 1";
+    $selectStmt = mysqli_prepare($con, $selectSql);
+    if (!$selectStmt) {
+        $err = mysqli_error($con);
+        error_log("war_results SELECT statement preparation error: " . $err);
+        $response['war_results'] = ["success" => false, "error" => "SELECT statement preparation error: " . $err];
+    } else {
+        // Prepare the INSERT statement.
+        $insertSql = "INSERT INTO war_results (
+            war_id, war_status, war_reason, war_declaration_date, war_end_date, total_attacks, xp_option,
+            attacker_nation_name, attacker_ruler_name, attacker_alliance, attacker_soldiers_lost, attacker_tanks_lost, 
+            attacker_cruise_missiles_lost, attacker_aircraft_lost, attacker_navy_lost, attacker_infrastructure_lost, 
+            attacker_technology_lost, attacker_land_lost, attacker_strength_lost,
+            defender_nation_name, defender_ruler_name, defender_alliance, defender_soldiers_lost, defender_tanks_lost, 
+            defender_cruise_missiles_lost, defender_aircraft_lost, defender_navy_lost, defender_infrastructure_lost, 
+            defender_technology_lost, defender_land_lost, defender_strength_lost
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $insertStmt = mysqli_prepare($con, $insertSql);
+        if (!$insertStmt) {
+            $err = mysqli_error($con);
+            error_log("war_results INSERT statement preparation error: " . $err);
+            $response['war_results'] = ["success" => false, "error" => "INSERT statement preparation error: " . $err];
+        } else {
+            // Prepare the UPDATE statement.
+            $updateSql = "UPDATE war_results SET
+                war_status = ?,
+                war_reason = ?,
+                war_declaration_date = ?,
+                war_end_date = ?,
+                total_attacks = ?,
+                xp_option = ?,
+                attacker_nation_name = ?,
+                attacker_ruler_name = ?,
+                attacker_alliance = ?,
+                attacker_soldiers_lost = ?,
+                attacker_tanks_lost = ?,
+                attacker_cruise_missiles_lost = ?,
+                attacker_aircraft_lost = ?,
+                attacker_navy_lost = ?,
+                attacker_infrastructure_lost = ?,
+                attacker_technology_lost = ?,
+                attacker_land_lost = ?,
+                attacker_strength_lost = ?,
+                defender_nation_name = ?,
+                defender_ruler_name = ?,
+                defender_alliance = ?,
+                defender_soldiers_lost = ?,
+                defender_tanks_lost = ?,
+                defender_cruise_missiles_lost = ?,
+                defender_aircraft_lost = ?,
+                defender_navy_lost = ?,
+                defender_infrastructure_lost = ?,
+                defender_technology_lost = ?,
+                defender_land_lost = ?,
+                defender_strength_lost = ?
+                WHERE war_id = ?";
+            $updateStmt = mysqli_prepare($con, $updateSql);
+            if (!$updateStmt) {
+                $err = mysqli_error($con);
+                error_log("war_results UPDATE statement preparation error: " . $err);
+                $response['war_results'] = ["success" => false, "error" => "UPDATE statement preparation error: " . $err];
+            } else {
+                mysqli_autocommit($con, false);
+                $allWarSuccess = true;
+                $warErrors = [];
+                foreach ($data['wars'] as $index => $war) {
+                    // Check for an existing record by war_id.
+                    mysqli_stmt_bind_param($selectStmt, "i", $war['war_id']);
+                    mysqli_stmt_execute($selectStmt);
+                    mysqli_stmt_store_result($selectStmt);
+                    $exists = mysqli_stmt_num_rows($selectStmt) > 0;
+                    mysqli_stmt_free_result($selectStmt);
+
+                    if ($exists) {
+                        // Update existing record.
+                        mysqli_stmt_bind_param(
+                            $updateStmt,
+                            "ssssisssiiiiiiidddiisssiiiiiiidi",
+                            $war['war_status'],
+                            $war['war_reason'],
+                            $war['war_declaration_date'],
+                            $war['war_end_date'],
+                            $war['total_attacks'],
+                            $war['xp_option'],
+                            $war['attacker_nation_name'],
+                            $war['attacker_ruler_name'],
+                            $war['attacker_alliance'],
+                            $war['attacker_soldiers_lost'],
+                            $war['attacker_tanks_lost'],
+                            $war['attacker_cruise_missiles_lost'],
+                            $war['attacker_aircraft_lost'],
+                            $war['attacker_navy_lost'],
+                            $war['attacker_infrastructure_lost'],
+                            $war['attacker_technology_lost'],
+                            $war['attacker_land_lost'],
+                            $war['attacker_strength_lost'],
+                            $war['defender_nation_name'],
+                            $war['defender_ruler_name'],
+                            $war['defender_alliance'],
+                            $war['defender_soldiers_lost'],
+                            $war['defender_tanks_lost'],
+                            $war['defender_cruise_missiles_lost'],
+                            $war['defender_aircraft_lost'],
+                            $war['defender_navy_lost'],
+                            $war['defender_infrastructure_lost'],
+                            $war['defender_technology_lost'],
+                            $war['defender_land_lost'],
+                            $war['defender_strength_lost'],
+                            $war['war_id']
+                        );
+                        if (!mysqli_stmt_execute($updateStmt)) {
+                            $allWarSuccess = false;
+                            $warErrors[] = "Error updating war index $index: " . mysqli_stmt_error($updateStmt);
+                            error_log("Error updating war index $index: " . mysqli_stmt_error($updateStmt));
+                        }
+                    } else {
+                        // Insert new record.
+                        mysqli_stmt_bind_param(
+                            $insertStmt,
+                            "issssisssiiiiiiidddiisssiiiiiiid",
+                            $war['war_id'],
+                            $war['war_status'],
+                            $war['war_reason'],
+                            $war['war_declaration_date'],
+                            $war['war_end_date'],
+                            $war['total_attacks'],
+                            $war['xp_option'],
+                            $war['attacker_nation_name'],
+                            $war['attacker_ruler_name'],
+                            $war['attacker_alliance'],
+                            $war['attacker_soldiers_lost'],
+                            $war['attacker_tanks_lost'],
+                            $war['attacker_cruise_missiles_lost'],
+                            $war['attacker_aircraft_lost'],
+                            $war['attacker_navy_lost'],
+                            $war['attacker_infrastructure_lost'],
+                            $war['attacker_technology_lost'],
+                            $war['attacker_land_lost'],
+                            $war['attacker_strength_lost'],
+                            $war['defender_nation_name'],
+                            $war['defender_ruler_name'],
+                            $war['defender_alliance'],
+                            $war['defender_soldiers_lost'],
+                            $war['defender_tanks_lost'],
+                            $war['defender_cruise_missiles_lost'],
+                            $war['defender_aircraft_lost'],
+                            $war['defender_navy_lost'],
+                            $war['defender_infrastructure_lost'],
+                            $war['defender_technology_lost'],
+                            $war['defender_land_lost'],
+                            $war['defender_strength_lost']
+                        );
+                        if (!mysqli_stmt_execute($insertStmt)) {
+                            $allWarSuccess = false;
+                            $warErrors[] = "Error inserting war index $index: " . mysqli_stmt_error($insertStmt);
+                            error_log("Error inserting war index $index: " . mysqli_stmt_error($insertStmt));
+                        }
+                    }
+                } // end foreach wars
+
+                if ($allWarSuccess) {
+                    mysqli_commit($con);
+                    $response['war_results'] = ["success" => true];
+                } else {
+                    mysqli_rollback($con);
+                    $response['war_results'] = ["success" => false, "error" => implode("; ", $warErrors)];
+                }
+                mysqli_stmt_close($updateStmt);
+            } // end updateStmt prepared
+            mysqli_stmt_close($insertStmt);
+        } // end selectStmt prepared
     }
 }
 
 // ------------------------------
-// Commit or Roll Back the Transaction
-// ------------------------------
-if ($allSuccess) {
-    mysqli_commit($con);
-    echo json_encode(["success" => true, "public_ip" => $publicIp]);
-} else {
-    mysqli_rollback($con);
-    echo json_encode(["success" => false, "error" => implode("; ", $errors), "public_ip" => $publicIp]);
-}
-
-// ------------------------------
-// Clean Up: Close the Statements and Connection
+// Close the SELECT Statement and Connection
 // ------------------------------
 mysqli_stmt_close($selectStmt);
-mysqli_stmt_close($insertStmt);
 mysqli_close($con);
+
+// Return a JSON response with results from both modules.
+echo json_encode(["success" => true, "modules" => $response, "public_ip" => $publicIp]);
 ?>
