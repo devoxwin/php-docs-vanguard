@@ -434,4 +434,5 @@ echo json_encode([
     ],
     "public_ip" => $publicIp
 ]);
+echo json_encode($response);
 ?>
