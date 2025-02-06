@@ -13,6 +13,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 header("Content-Type: application/json");
 
+// For debugging, capture the raw input:
+$rawInput = file_get_contents('php://input');
+
+// Log the raw input (you can check your error log)
+error_log("Raw input: " . $rawInput);
+
+// Decode the JSON
+$data = json_decode($rawInput, true);
+
+// Prepare a debug response that echoes back what was received:
+$response = [
+    "success" => true,
+    "received" => $data
+];
+
 // ------------------------------
 // Error Reporting
 // ------------------------------
