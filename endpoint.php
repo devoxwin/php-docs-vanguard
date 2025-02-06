@@ -109,6 +109,136 @@ if (!$connected) {
 mysqli_set_charset($con, "utf8mb4");
 
 // ------------------------------
+// Module 1: Nuclear Attack Data (nuke_data)
+// Duplicate Prevention Logic:
+// - Group battles by a unique key built from all fields.
+// - For each unique group, check if a record already exists.
+// - If it exists (from previous scrapes), skip insertion.
+// - If not, insert as many rows as the count in the current scrape.
+// ------------------------------
+if (isset($data['battles']) && is_array($data['battles'])) {
+    $grouped = [];
+    foreach ($data['battles'] as $battle) {
+        $key = $battle['defending_nation']['id'] . '|' .
+               $battle['defending_nation']['name'] . '|' .
+               $battle['defending_nation']['ruler'] . '|' .
+               $battle['defending_nation']['alliance'] . '|' .
+               $battle['defending_nation']['team'] . '|' .
+               $battle['attacking_nation']['id'] . '|' .
+               $battle['attacking_nation']['name'] . '|' .
+               $battle['attacking_nation']['ruler'] . '|' .
+               $battle['attacking_nation']['alliance'] . '|' .
+               $battle['attacking_nation']['team'] . '|' .
+               $battle['timestamp'] . '|' .
+               $battle['result'];
+        if (!isset($grouped[$key])) {
+            $grouped[$key] = ['battle' => $battle, 'count' => 0];
+        }
+        $grouped[$key]['count']++;
+    }
+    error_log("Grouped battles count: " . count($grouped));
+
+    // Prepare SELECT statement to check for duplicates.
+    $selectSql = "SELECT 1 FROM nuke_data WHERE 
+        defending_nation_id = ? AND 
+        defending_nation_name = ? AND 
+        defending_nation_ruler = ? AND 
+        defending_nation_alliance = ? AND 
+        defending_nation_team = ? AND 
+        attacking_nation_id = ? AND 
+        attacking_nation_name = ? AND 
+        attacking_nation_ruler = ? AND 
+        attacking_nation_alliance = ? AND 
+        attacking_nation_team = ? AND 
+        `timestamp` = ? AND 
+        result = ? LIMIT 1";
+    $selectStmt = mysqli_prepare($con, $selectSql);
+    if (!$selectStmt) {
+        $err = mysqli_error($con);
+        error_log("nuke_data SELECT preparation error: " . $err);
+        $nukeResponse = ["success" => false, "error" => "nuke_data SELECT preparation error: " . $err];
+    } else {
+        // Prepare INSERT statement.
+        $insertSql = "INSERT INTO nuke_data (
+            defending_nation_id, defending_nation_name, defending_nation_ruler, defending_nation_alliance, defending_nation_team,
+            attacking_nation_id, attacking_nation_name, attacking_nation_ruler, attacking_nation_alliance, attacking_nation_team,
+            `timestamp`, result
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        $insertStmt = mysqli_prepare($con, $insertSql);
+        if (!$insertStmt) {
+            $err = mysqli_error($con);
+            error_log("nuke_data INSERT preparation error: " . $err);
+            $nukeResponse = ["success" => false, "error" => "nuke_data INSERT preparation error: " . $err];
+        } else {
+            mysqli_autocommit($con, false);
+            $allNukeSuccess = true;
+            $nukeErrors = [];
+            foreach ($grouped as $key => $group) {
+                $battle = $group['battle'];
+                $countToInsert = $group['count'];
+
+                mysqli_stmt_bind_param(
+                    $selectStmt, "ssssssssssss",
+                    $battle['defending_nation']['id'],
+                    $battle['defending_nation']['name'],
+                    $battle['defending_nation']['ruler'],
+                    $battle['defending_nation']['alliance'],
+                    $battle['defending_nation']['team'],
+                    $battle['attacking_nation']['id'],
+                    $battle['attacking_nation']['name'],
+                    $battle['attacking_nation']['ruler'],
+                    $battle['attacking_nation']['alliance'],
+                    $battle['attacking_nation']['team'],
+                    $battle['timestamp'],
+                    $battle['result']
+                );
+                mysqli_stmt_execute($selectStmt);
+                mysqli_stmt_store_result($selectStmt);
+                $exists = mysqli_stmt_num_rows($selectStmt) > 0;
+                mysqli_stmt_free_result($selectStmt);
+
+                if ($exists) {
+                    error_log("Duplicate nuke data exists for key: " . $key . ". Skipping insertion.");
+                    continue;
+                }
+
+                for ($i = 0; $i < $countToInsert; $i++) {
+                    mysqli_stmt_bind_param(
+                        $insertStmt, "ssssssssssss",
+                        $battle['defending_nation']['id'],
+                        $battle['defending_nation']['name'],
+                        $battle['defending_nation']['ruler'],
+                        $battle['defending_nation']['alliance'],
+                        $battle['defending_nation']['team'],
+                        $battle['attacking_nation']['id'],
+                        $battle['attacking_nation']['name'],
+                        $battle['attacking_nation']['ruler'],
+                        $battle['attacking_nation']['alliance'],
+                        $battle['attacking_nation']['team'],
+                        $battle['timestamp'],
+                        $battle['result']
+                    );
+                    if (!mysqli_stmt_execute($insertStmt)) {
+                        $allNukeSuccess = false;
+                        $nukeErrors[] = "Error inserting nuke data for key $key: " . mysqli_stmt_error($insertStmt);
+                        error_log("Error inserting nuke data for key $key: " . mysqli_stmt_error($insertStmt));
+                    }
+                }
+            }
+            if ($allNukeSuccess) {
+                mysqli_commit($con);
+                $nukeResponse = ["success" => true];
+            } else {
+                mysqli_rollback($con);
+                $nukeResponse = ["success" => false, "error" => implode("; ", $nukeErrors)];
+            }
+            mysqli_stmt_close($selectStmt);
+            mysqli_stmt_close($insertStmt);
+        }
+    }
+} else {
+    $nukeResponse = ["success" => true, "message" => "No nuke data provided"];
+}
 
 // ------------------------------
 // Module 2: War Damage Data (war_results Upsert)
