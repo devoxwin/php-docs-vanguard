@@ -1,4 +1,5 @@
 <?php
+ob_start();
 // ------------------------------
 // CORS and Headers
 // ------------------------------
@@ -406,7 +407,7 @@ if (isset($data['wars']) && is_array($data['wars'])) {
 // ------------------------------
 // Close the database connection.
 mysqli_close($con);
-
+ob_end_flush();
 // Return a JSON response with both modules' responses.
 echo json_encode([
     "success" => true,
