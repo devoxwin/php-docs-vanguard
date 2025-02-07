@@ -1,10 +1,8 @@
 <?php
-ini_set('display_errors', 0);
-error_reporting(E_ALL);
-ob_start();
 // ------------------------------
 // CORS and Headers
 // ------------------------------
+ob_start(); // Start output buffering
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept, Origin");
@@ -13,23 +11,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 header("Content-Type: application/json");
 
-// For debugging, capture the raw input:
-$rawInput = file_get_contents('php://input');
-
-// Log the raw input (you can check your error log)
-error_log("Raw input: " . $rawInput);
-
-// Decode the JSON
-$data = json_decode($rawInput, true);
-
-// Prepare a debug response that echoes back what was received:
-$response = [
-    "success" => true,
-    "received" => $data
-];
-
 // ------------------------------
-// Error Reporting
+// Error Reporting (for production, display_errors should be off)
 // ------------------------------
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
@@ -51,7 +34,7 @@ $host     = 'cn-valyria-prod.mysql.database.azure.com';    // Provided host name
 $dbname   = 'cybernations_db';     // Your database name
 $username = 'base_admin';          // Provided username
 $password = 'sTP5rE[>cw6q&Nv4';     // Provided password
-$port     = 3306;                 // Port number (usually 3306)
+$port     = 3306;   
 
 // ------------------------------
 // SSL Certificate Settings
@@ -71,7 +54,7 @@ if ($certContent === false || strpos($certContent, "-----BEGIN CERTIFICATE-----"
 error_log("CA certificate validated successfully at: " . $ca_cert);
 
 // ------------------------------
-// Retrieve Server Public IP (for logging/debugging)
+// Retrieve Server Public IP (for debugging)
 // ------------------------------
 $publicIp = @file_get_contents('https://api.ipify.org');
 if ($publicIp === false) { $publicIp = "unknown"; }
@@ -110,11 +93,6 @@ mysqli_set_charset($con, "utf8mb4");
 
 // ------------------------------
 // Module 1: Nuclear Attack Data (nuke_data)
-// Duplicate Prevention Logic:
-// - Group battles by a unique key built from all fields.
-// - For each unique group, check if a record already exists.
-// - If it exists (from previous scrapes), skip insertion.
-// - If not, insert as many rows as the count in the current scrape.
 // ------------------------------
 if (isset($data['battles']) && is_array($data['battles'])) {
     $grouped = [];
@@ -138,7 +116,6 @@ if (isset($data['battles']) && is_array($data['battles'])) {
     }
     error_log("Grouped battles count: " . count($grouped));
 
-    // Prepare SELECT statement to check for duplicates.
     $selectSql = "SELECT 1 FROM nuke_data WHERE 
         defending_nation_id = ? AND 
         defending_nation_name = ? AND 
@@ -158,7 +135,6 @@ if (isset($data['battles']) && is_array($data['battles'])) {
         error_log("nuke_data SELECT preparation error: " . $err);
         $nukeResponse = ["success" => false, "error" => "nuke_data SELECT preparation error: " . $err];
     } else {
-        // Prepare INSERT statement.
         $insertSql = "INSERT INTO nuke_data (
             defending_nation_id, defending_nation_name, defending_nation_ruler, defending_nation_alliance, defending_nation_team,
             attacking_nation_id, attacking_nation_name, attacking_nation_ruler, attacking_nation_alliance, attacking_nation_team,
@@ -176,7 +152,6 @@ if (isset($data['battles']) && is_array($data['battles'])) {
             foreach ($grouped as $key => $group) {
                 $battle = $group['battle'];
                 $countToInsert = $group['count'];
-
                 mysqli_stmt_bind_param(
                     $selectStmt, "ssssssssssss",
                     $battle['defending_nation']['id'],
@@ -196,12 +171,10 @@ if (isset($data['battles']) && is_array($data['battles'])) {
                 mysqli_stmt_store_result($selectStmt);
                 $exists = mysqli_stmt_num_rows($selectStmt) > 0;
                 mysqli_stmt_free_result($selectStmt);
-
                 if ($exists) {
                     error_log("Duplicate nuke data exists for key: " . $key . ". Skipping insertion.");
                     continue;
                 }
-
                 for ($i = 0; $i < $countToInsert; $i++) {
                     mysqli_stmt_bind_param(
                         $insertStmt, "ssssssssssss",
@@ -242,9 +215,9 @@ if (isset($data['battles']) && is_array($data['battles'])) {
 
 // ------------------------------
 // Module 2: War Damage Data (war_results Upsert)
+// We now expect the war data to be sent under the key "wardata".
 // ------------------------------
 if (isset($data['wardata']) && is_array($data['wardata'])) {
-    // Prepare SELECT to check if a war record exists.
     $selectWarSql = "SELECT war_id FROM war_results WHERE war_id = ? LIMIT 1";
     $selectWarStmt = mysqli_prepare($con, $selectWarSql);
     if (!$selectWarStmt) {
@@ -252,7 +225,6 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
         error_log("war_results SELECT preparation error: " . $err);
         $warResponse = ["success" => false, "error" => "war_results SELECT preparation error: " . $err];
     } else {
-        // Prepare INSERT for new war records.
         $insertWarSql = "INSERT INTO war_results (
             war_id, war_status, war_reason, war_declaration_date, war_end_date, total_attacks, xp_option,
             attacker_nation_name, attacker_ruler_name, attacker_alliance, attacker_soldiers_lost, attacker_tanks_lost, 
@@ -268,7 +240,6 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
             error_log("war_results INSERT preparation error: " . $err);
             $warResponse = ["success" => false, "error" => "war_results INSERT preparation error: " . $err];
         } else {
-            // Prepare UPDATE for existing war records.
             $updateWarSql = "UPDATE war_results SET
                 war_status = ?,
                 war_reason = ?,
@@ -311,7 +282,6 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                 $allWarSuccess = true;
                 $warErrors = [];
                 foreach ($data['wardata'] as $index => $war) {
-                    // Check for existence.
                     mysqli_stmt_bind_param($selectWarStmt, "i", $war['war_id']);
                     mysqli_stmt_execute($selectWarStmt);
                     mysqli_stmt_store_result($selectWarStmt);
@@ -319,7 +289,6 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                     mysqli_stmt_free_result($selectWarStmt);
 
                     if ($exists) {
-                        // Update existing record.
                         mysqli_stmt_bind_param(
                             $updateWarStmt,
                             "ssssisssiiiiiiidddiisssiiiiiiidi",
@@ -361,7 +330,6 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                             error_log("Error updating war index $index: " . mysqli_stmt_error($updateWarStmt));
                         }
                     } else {
-                        // Insert new record.
                         mysqli_stmt_bind_param(
                             $insertWarStmt,
                             "issssisssiiiiiiidddiisssiiiiiiid",
@@ -403,7 +371,7 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                             error_log("Error inserting war index $index: " . mysqli_stmt_error($insertWarStmt));
                         }
                     }
-                } // end foreach wars
+                }
                 if ($allWarSuccess) {
                     mysqli_commit($con);
                     $warResponse = ["success" => true];
@@ -424,8 +392,11 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
 // ------------------------------
 // Close the database connection.
 mysqli_close($con);
+
+// Flush output buffering.
 ob_end_flush();
-// Return a JSON response with both modules' responses.
+
+// Return a JSON response with results from both modules.
 echo json_encode([
     "success" => true,
     "modules" => [
@@ -434,5 +405,4 @@ echo json_encode([
     ],
     "public_ip" => $publicIp
 ]);
-echo json_encode($response);
 ?>
