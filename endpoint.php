@@ -1,8 +1,10 @@
 <?php
+// Start output buffering so headers can be sent.
+ob_start();
+
 // ------------------------------
 // CORS and Headers
 // ------------------------------
-ob_start(); // Start output buffering
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE");
 header("Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, Accept, Origin");
@@ -12,20 +14,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 header("Content-Type: application/json");
 
 // ------------------------------
-// Error Reporting (for production, display_errors should be off)
+// Error Reporting (turn off display in production)
 // ------------------------------
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 // ------------------------------
+// Set up debug messages array
+// ------------------------------
+$debugMessages = [];
+$debugMessages[] = "Starting endpoint.php script.";
+
+// ------------------------------
 // Retrieve JSON Input
 // ------------------------------
 $input = file_get_contents('php://input');
+$debugMessages[] = "Raw input received: " . substr($input, 0, 200) . "...";  // Show first 200 characters for brevity
+
 $data = json_decode($input, true);
 if (!$data) {
-    echo json_encode(["success" => false, "error" => "Invalid or empty JSON received"]);
+    echo json_encode([
+        "success" => false,
+        "error" => "Invalid or empty JSON received",
+        "debug" => $debugMessages
+    ]);
     exit;
 }
+$debugMessages[] = "JSON decoded successfully.";
 
 // ------------------------------
 // Database Connection Details
@@ -35,38 +50,51 @@ $dbname   = 'cybernations_db';     // Your database name
 $username = 'base_admin';          // Provided username
 $password = 'sTP5rE[>cw6q&Nv4';     // Provided password
 $port     = 3306;   
+$debugMessages[] = "Database connection details set.";
 
 // ------------------------------
 // SSL Certificate Settings
 // ------------------------------
 $ca_cert = __DIR__ . "/DigiCertGlobalRootCA.crt.pem";
 if (!file_exists($ca_cert) || !is_readable($ca_cert)) {
-    error_log("CA certificate file not found or not readable at: " . $ca_cert);
-    echo json_encode(["success" => false, "error" => "CA certificate file not found or not readable at: " . $ca_cert]);
+    $debugMessages[] = "CA certificate file not found or not readable at: " . $ca_cert;
+    echo json_encode([
+        "success" => false,
+        "error" => "CA certificate file not found or not readable",
+        "debug" => $debugMessages
+    ]);
     exit;
 }
 $certContent = file_get_contents($ca_cert);
 if ($certContent === false || strpos($certContent, "-----BEGIN CERTIFICATE-----") === false) {
-    error_log("The file at " . $ca_cert . " does not contain a valid certificate.");
-    echo json_encode(["success" => false, "error" => "Invalid CA certificate at: " . $ca_cert]);
+    $debugMessages[] = "The file at " . $ca_cert . " does not contain a valid certificate.";
+    echo json_encode([
+        "success" => false,
+        "error" => "Invalid CA certificate",
+        "debug" => $debugMessages
+    ]);
     exit;
 }
-error_log("CA certificate validated successfully at: " . $ca_cert);
+$debugMessages[] = "CA certificate validated successfully.";
 
 // ------------------------------
 // Retrieve Server Public IP (for debugging)
 // ------------------------------
 $publicIp = @file_get_contents('https://api.ipify.org');
 if ($publicIp === false) { $publicIp = "unknown"; }
-error_log("Server Public IP: " . $publicIp);
+$debugMessages[] = "Server Public IP: " . $publicIp;
 
 // ------------------------------
 // Initialize MySQLi Connection with SSL (with retry loop)
 // ------------------------------
 $con = mysqli_init();
 if (!$con) {
-    error_log("mysqli_init() failed");
-    echo json_encode(["success" => false, "error" => "mysqli_init() failed"]);
+    $debugMessages[] = "mysqli_init() failed.";
+    echo json_encode([
+        "success" => false,
+        "error" => "mysqli_init() failed",
+        "debug" => $debugMessages
+    ]);
     exit;
 }
 mysqli_ssl_set($con, NULL, NULL, $ca_cert, NULL, NULL);
@@ -76,25 +104,32 @@ $attempt = 0;
 $connected = false;
 while ($attempt < $maxAttempts && !$connected) {
     $attempt++;
-    error_log("Attempt $attempt to connect to database...");
+    $debugMessages[] = "Attempt $attempt to connect to database...";
     $connected = mysqli_real_connect($con, $host, $username, $password, $dbname, $port, NULL, MYSQLI_CLIENT_SSL);
     if (!$connected) {
-        error_log("Attempt $attempt failed: " . mysqli_connect_error());
+        $debugMessages[] = "Attempt $attempt failed: " . mysqli_connect_error();
         if ($attempt < $maxAttempts) sleep(3);
     }
 }
 if (!$connected) {
     $err = mysqli_connect_error();
-    error_log("Database connection error after $maxAttempts attempts: " . $err);
-    echo json_encode(["success" => false, "error" => "Database connection error: " . $err, "public_ip" => $publicIp]);
+    $debugMessages[] = "Database connection error after $maxAttempts attempts: " . $err;
+    echo json_encode([
+        "success" => false,
+        "error" => "Database connection error: " . $err,
+        "public_ip" => $publicIp,
+        "debug" => $debugMessages
+    ]);
     exit;
 }
 mysqli_set_charset($con, "utf8mb4");
+$debugMessages[] = "Database connection established successfully.";
 
 // ------------------------------
 // Module 1: Nuclear Attack Data (nuke_data)
 // ------------------------------
 if (isset($data['battles']) && is_array($data['battles'])) {
+    $debugMessages[] = "Processing nuclear attack data.";
     $grouped = [];
     foreach ($data['battles'] as $battle) {
         $key = $battle['defending_nation']['id'] . '|' .
@@ -114,7 +149,7 @@ if (isset($data['battles']) && is_array($data['battles'])) {
         }
         $grouped[$key]['count']++;
     }
-    error_log("Grouped battles count: " . count($grouped));
+    $debugMessages[] = "Grouped battles count: " . count($grouped);
 
     $selectSql = "SELECT 1 FROM nuke_data WHERE 
         defending_nation_id = ? AND 
@@ -132,7 +167,7 @@ if (isset($data['battles']) && is_array($data['battles'])) {
     $selectStmt = mysqli_prepare($con, $selectSql);
     if (!$selectStmt) {
         $err = mysqli_error($con);
-        error_log("nuke_data SELECT preparation error: " . $err);
+        $debugMessages[] = "nuke_data SELECT preparation error: " . $err;
         $nukeResponse = ["success" => false, "error" => "nuke_data SELECT preparation error: " . $err];
     } else {
         $insertSql = "INSERT INTO nuke_data (
@@ -143,7 +178,7 @@ if (isset($data['battles']) && is_array($data['battles'])) {
         $insertStmt = mysqli_prepare($con, $insertSql);
         if (!$insertStmt) {
             $err = mysqli_error($con);
-            error_log("nuke_data INSERT preparation error: " . $err);
+            $debugMessages[] = "nuke_data INSERT preparation error: " . $err;
             $nukeResponse = ["success" => false, "error" => "nuke_data INSERT preparation error: " . $err];
         } else {
             mysqli_autocommit($con, false);
@@ -152,6 +187,7 @@ if (isset($data['battles']) && is_array($data['battles'])) {
             foreach ($grouped as $key => $group) {
                 $battle = $group['battle'];
                 $countToInsert = $group['count'];
+
                 mysqli_stmt_bind_param(
                     $selectStmt, "ssssssssssss",
                     $battle['defending_nation']['id'],
@@ -172,7 +208,7 @@ if (isset($data['battles']) && is_array($data['battles'])) {
                 $exists = mysqli_stmt_num_rows($selectStmt) > 0;
                 mysqli_stmt_free_result($selectStmt);
                 if ($exists) {
-                    error_log("Duplicate nuke data exists for key: " . $key . ". Skipping insertion.");
+                    $debugMessages[] = "Duplicate nuke data exists for key: " . $key . ". Skipping insertion.";
                     continue;
                 }
                 for ($i = 0; $i < $countToInsert; $i++) {
@@ -194,16 +230,18 @@ if (isset($data['battles']) && is_array($data['battles'])) {
                     if (!mysqli_stmt_execute($insertStmt)) {
                         $allNukeSuccess = false;
                         $nukeErrors[] = "Error inserting nuke data for key $key: " . mysqli_stmt_error($insertStmt);
-                        error_log("Error inserting nuke data for key $key: " . mysqli_stmt_error($insertStmt));
+                        $debugMessages[] = "Error inserting nuke data for key $key: " . mysqli_stmt_error($insertStmt);
                     }
                 }
             }
             if ($allNukeSuccess) {
                 mysqli_commit($con);
                 $nukeResponse = ["success" => true];
+                $debugMessages[] = "Nuke data inserted successfully.";
             } else {
                 mysqli_rollback($con);
                 $nukeResponse = ["success" => false, "error" => implode("; ", $nukeErrors)];
+                $debugMessages[] = "Nuke data insertion errors: " . implode("; ", $nukeErrors);
             }
             mysqli_stmt_close($selectStmt);
             mysqli_stmt_close($insertStmt);
@@ -211,18 +249,20 @@ if (isset($data['battles']) && is_array($data['battles'])) {
     }
 } else {
     $nukeResponse = ["success" => true, "message" => "No nuke data provided"];
+    $debugMessages[] = "No nuke data provided.";
 }
 
 // ------------------------------
-// Module 2: War Damage Data (war_results Upsert)
+// Module 2: War Damage Data (Upsert)
 // We now expect the war data to be sent under the key "wardata".
 // ------------------------------
 if (isset($data['wardata']) && is_array($data['wardata'])) {
+    $debugMessages[] = "Processing war data.";
     $selectWarSql = "SELECT war_id FROM war_results WHERE war_id = ? LIMIT 1";
     $selectWarStmt = mysqli_prepare($con, $selectWarSql);
     if (!$selectWarStmt) {
         $err = mysqli_error($con);
-        error_log("war_results SELECT preparation error: " . $err);
+        $debugMessages[] = "war_results SELECT preparation error: " . $err;
         $warResponse = ["success" => false, "error" => "war_results SELECT preparation error: " . $err];
     } else {
         $insertWarSql = "INSERT INTO war_results (
@@ -237,7 +277,7 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
         $insertWarStmt = mysqli_prepare($con, $insertWarSql);
         if (!$insertWarStmt) {
             $err = mysqli_error($con);
-            error_log("war_results INSERT preparation error: " . $err);
+            $debugMessages[] = "war_results INSERT preparation error: " . $err;
             $warResponse = ["success" => false, "error" => "war_results INSERT preparation error: " . $err];
         } else {
             $updateWarSql = "UPDATE war_results SET
@@ -275,7 +315,7 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
             $updateWarStmt = mysqli_prepare($con, $updateWarSql);
             if (!$updateWarStmt) {
                 $err = mysqli_error($con);
-                error_log("war_results UPDATE preparation error: " . $err);
+                $debugMessages[] = "war_results UPDATE preparation error: " . $err;
                 $warResponse = ["success" => false, "error" => "war_results UPDATE preparation error: " . $err];
             } else {
                 mysqli_autocommit($con, false);
@@ -327,7 +367,7 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                         if (!mysqli_stmt_execute($updateWarStmt)) {
                             $allWarSuccess = false;
                             $warErrors[] = "Error updating war index $index: " . mysqli_stmt_error($updateWarStmt);
-                            error_log("Error updating war index $index: " . mysqli_stmt_error($updateWarStmt));
+                            $debugMessages[] = "Error updating war index $index: " . mysqli_stmt_error($updateWarStmt);
                         }
                     } else {
                         mysqli_stmt_bind_param(
@@ -368,16 +408,18 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                         if (!mysqli_stmt_execute($insertWarStmt)) {
                             $allWarSuccess = false;
                             $warErrors[] = "Error inserting war index $index: " . mysqli_stmt_error($insertWarStmt);
-                            error_log("Error inserting war index $index: " . mysqli_stmt_error($insertWarStmt));
+                            $debugMessages[] = "Error inserting war index $index: " . mysqli_stmt_error($insertWarStmt);
                         }
                     }
                 }
                 if ($allWarSuccess) {
                     mysqli_commit($con);
                     $warResponse = ["success" => true];
+                    $debugMessages[] = "War data processed successfully.";
                 } else {
                     mysqli_rollback($con);
                     $warResponse = ["success" => false, "error" => implode("; ", $warErrors)];
+                    $debugMessages[] = "War data processing errors: " . implode("; ", $warErrors);
                 }
                 mysqli_stmt_close($updateWarStmt);
             }
@@ -387,6 +429,7 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
     }
 } else {
     $warResponse = ["success" => true, "message" => "No war data provided"];
+    $debugMessages[] = "No war data provided.";
 }
 
 // ------------------------------
@@ -396,13 +439,14 @@ mysqli_close($con);
 // Flush output buffering.
 ob_end_flush();
 
-// Return a JSON response with results from both modules.
+// Return a JSON response with results from both modules and debug messages.
 echo json_encode([
     "success" => true,
     "modules" => [
         "nuke_data" => $nukeResponse,
         "war_results" => $warResponse
     ],
-    "public_ip" => $publicIp
+    "public_ip" => $publicIp,
+    "debug" => $debugMessages
 ]);
 ?>
