@@ -243,7 +243,7 @@ if (isset($data['battles']) && is_array($data['battles'])) {
 // ------------------------------
 // Module 2: War Damage Data (war_results Upsert)
 // ------------------------------
-if (isset($data['wars']) && is_array($data['wars'])) {
+if (isset($data['wardata']) && is_array($data['wardata'])) {
     // Prepare SELECT to check if a war record exists.
     $selectWarSql = "SELECT war_id FROM war_results WHERE war_id = ? LIMIT 1";
     $selectWarStmt = mysqli_prepare($con, $selectWarSql);
@@ -310,7 +310,7 @@ if (isset($data['wars']) && is_array($data['wars'])) {
                 mysqli_autocommit($con, false);
                 $allWarSuccess = true;
                 $warErrors = [];
-                foreach ($data['wars'] as $index => $war) {
+                foreach ($data['wardata'] as $index => $war) {
                     // Check for existence.
                     mysqli_stmt_bind_param($selectWarStmt, "i", $war['war_id']);
                     mysqli_stmt_execute($selectWarStmt);
