@@ -218,30 +218,7 @@ if (isset($data['battles']) && is_array($data['battles'])) {
 // We now expect the war data to be sent under the key "wardata".
 // ------------------------------
 if (isset($data['wardata']) && is_array($data['wardata'])) {
-    $selectWarSql = "SELECT war_id FROM war_results WHERE war_id = ? LIMIT 1";
-    $selectWarStmt = mysqli_prepare($con, $selectWarSql);
-    if (!$selectWarStmt) {
-        $err = mysqli_error($con);
-        error_log("war_results SELECT preparation error: " . $err);
-        $warResponse = ["success" => false, "error" => "war_results SELECT preparation error: " . $err];
-    } else {
-        $insertWarSql = "INSERT INTO cybernations_db.war_results (
-            war_id, war_status, war_reason, war_declaration_date, war_end_date, total_attacks, xp_option,
-            attacker_nation_name, attacker_ruler_name, attacker_alliance, attacker_soldiers_lost, attacker_tanks_lost, 
-            attacker_cruise_missiles_lost, attacker_aircraft_lost, attacker_navy_lost, attacker_infrastructure_lost, 
-            attacker_technology_lost, attacker_land_lost, attacker_strength_lost,
-            defender_nation_name, defender_ruler_name, defender_alliance, defender_soldiers_lost, defender_tanks_lost, 
-            defender_cruise_missiles_lost, defender_aircraft_lost, defender_navy_lost, defender_infrastructure_lost, 
-            defender_technology_lost, defender_land_lost, defender_strength_lost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        $insertWarStmt = mysqli_prepare($con, $insertWarSql);
-        if (!$insertWarStmt) {
-            $err = mysqli_error($con);
-            error_log("war_results INSERT preparation error: " . $err);
-            $warResponse = ["success" => false, "error" => "war_results INSERT preparation error: " . $err];
-        } 
-        }
-        mysqli_stmt_close($selectWarStmt);
+    echo "nice"
     }
 } else {
     $warResponse = ["success" => true, "message" => "No war data provided"];
