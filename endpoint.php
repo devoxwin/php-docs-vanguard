@@ -51,7 +51,7 @@ log_debug("JSON decoded successfully.");
 // ------------------------------
 $host     = "cn-valyria-prod.mysql.database.azure.com";
 $dbname   = 'cybernations_db';
-$username = "base_admin@cn-valyria-prod";
+$username = "base_admin";
 $password = 'sTP5rE[>cw6q&Nv4';
 $port     = 3306;
 log_debug("Database connection details set.");
