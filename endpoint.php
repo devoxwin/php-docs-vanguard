@@ -1,5 +1,5 @@
 <?php
-// Start output buffering so headers can be sent.
+// Start output buffering so headers can be set.
 ob_start();
 
 // ------------------------------
@@ -14,7 +14,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 header("Content-Type: application/json");
 
 // ------------------------------
-// Error Reporting (disable display in production)
+// Error Reporting (turn off display in production)
 // ------------------------------
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
@@ -49,11 +49,11 @@ log_debug("JSON decoded successfully.");
 // ------------------------------
 // Database Connection Details
 // ------------------------------
-$host     = 'cn-valyria-prod.mysql.database.azure.com';    // Provided host name
-$dbname   = 'cybernations_db';     // Your database name
-$username = 'base_admin';          // Provided username
-$password = 'sTP5rE[>cw6q&Nv4';     // Provided password
-$port     = 3306;   
+$host     = "cn-valyria-prod.mysql.database.azure.com";
+$dbname   = 'cybernations_db';
+$username = "base_admin@cn-valyria-prod";
+$password = 'sTP5rE[>cw6q&Nv4';
+$port     = 3306;
 log_debug("Database connection details set.");
 
 // ------------------------------
@@ -83,9 +83,7 @@ log_debug("CA certificate validated successfully.");
 // Retrieve Server Public IP (for debugging)
 // ------------------------------
 $publicIp = @file_get_contents('https://api.ipify.org');
-if ($publicIp === false) { 
-    $publicIp = "unknown"; 
-}
+if ($publicIp === false) { $publicIp = "unknown"; }
 log_debug("Server Public IP: " . $publicIp);
 
 // ------------------------------
@@ -101,7 +99,6 @@ if (!$con) {
     exit;
 }
 mysqli_ssl_set($con, NULL, NULL, $ca_cert, NULL, NULL);
-
 $maxAttempts = 5;
 $attempt = 0;
 $connected = false;
@@ -152,6 +149,7 @@ if (isset($data['battles']) && is_array($data['battles'])) {
         $grouped[$key]['count']++;
     }
     log_debug("Grouped battles count: " . count($grouped));
+
     $selectSql = "SELECT 1 FROM nuke_data WHERE 
         defending_nation_id = ? AND 
         defending_nation_name = ? AND 
@@ -327,6 +325,7 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                     mysqli_stmt_store_result($selectWarStmt);
                     $exists = mysqli_stmt_num_rows($selectWarStmt) > 0;
                     mysqli_stmt_free_result($selectWarStmt);
+
                     if ($exists) {
                         mysqli_stmt_bind_param(
                             $updateWarStmt,
@@ -433,237 +432,313 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
 
 // ------------------------------
 // Module 3: Nation Drill Display Data (Insert)
-// ------------------------------
+// Expect nation data to be sent under the key "nationData".
 if (isset($data['nationData']) && is_array($data['nationData'])) {
-    log_debug("Processing nation data.");
-    // For convenience, assign the nation data array to a variable.
-    $nd = $data['nationData'];
-    // Prepare the INSERT statement. (The fields here match those from the CREATE TABLE statement.)
-    $insertNationSql = "INSERT INTO cybernations_db.nation_data (
-         nation_id, ruler, nation_name, last_donation, alliance_affiliation, alliance_role, alliance_seniority,
-         government_type, government_decision, national_religion, religion_decision, nation_team, nation_created,
-         technology, infrastructure, tax_rate, area_of_influence, purchased_land, land_modifiers, land_growth,
-         war_peace_preference,
-         resource1, resource2, resource3, resource4, resource5, resource6, resource7, resource8, resource9, resource10, resource11, resource12,
-         native_resource_1, native_resource_2,
-         trade_slots_filled, trade_slots_max,
-         airports, banks, barracks, churches, clinics, drydocks, factories, foreign_ministries, forward_operating_bases, guerrilla_camps, harbors, hospitals, intelligence_agencies, labor_camps, missile_defenses, munitions_factories, naval_academies, naval_construction_yards, offices_of_propaganda, police_headquarters, prisons, rehabilitation_facilities, satellites, schools, shipyards, stadiums, universities,
-         wonder_agriculture_dev, wonder_anti_air_defense, wonder_central_intel, wonder_disaster_relief, wonder_emp_weaponization,
-         wonder_federal_aid, wonder_federal_reserve, wonder_foreign_air_base, wonder_foreign_army_base, wonder_foreign_naval_base,
-         wonder_great_monument, wonder_great_temple, wonder_great_university, wonder_hidden_nuke_silo, wonder_interceptor_missile,
-         wonder_internet, wonder_interstate_system, wonder_manhattan_project, wonder_mars_base, wonder_mars_colony, wonder_mars_mine, wonder_mining_consortium,
-         wonder_movie_industry, wonder_national_cemetery, wonder_national_environment_office, wonder_national_research_lab, wonder_national_war_memorial,
-         wonder_nuclear_power, wonder_pentagon, wonder_political_lobbyists, wonder_scientific_development, wonder_social_security,
-         wonder_space_program, wonder_stock_market, wonder_strategic_defense, wonder_superior_logistical, wonder_universal_health, wonder_weapons_research,
-         environment, nation_strength, defcon_level, threat_level,
-         num_soldiers, effective_soldiers, defending_soldiers, deployed_soldiers,
-         num_tanks, defending_tanks, deployed_tanks,
-         aircraft, cruise_missiles, navy_vessels, nuclear_weapons, num_spies,
-         soldiers_lost, attacking_casualties, defending_casualties,
-         total_population, population_density,
-         military_personnel, working_citizens, criminals, rehabbed_criminals, population_happiness, crime_index, crime_prevention_score,
-         avg_gross_income, avg_income_taxes, avg_net_income,
-         total_income_taxes_collected, total_expenses, bills_paid, purchases_over_time, current_dinars
-    ) VALUES (
-         ?, ?, ?, ?, ?, ?, ?,
-         ?, ?, ?, ?, ?, ?,
-         ?, ?, ?, ?, ?, ?, ?,
-         ?,
-         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-         ?, ?,
-         ?, ?,
-         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-         ?, ?, ?, ?, ?,
-         ?, ?, ?, ?, ?,
-         ?, ?, ?, ?, ?, ?, ?, ?,
-         ?, ?, ?, ?, ?,
-         ?, ?, ?, ?, ?,
-         ?, ?, ?,
-         ?, ?, ?, ?,
-         ?, ?, ?, ?,
-         ?, ?, ?, ?, ?
-    )";
+    log_debug("Processing nation drill display data (Module 3).");
+    $nationData = $data['nationData'];
+    // Prepare the INSERT statement for the nation_data table.
+    $insertNationSql = "INSERT INTO nation_data (
+      nation_id,
+      ruler,
+      nation_name,
+      last_donation,
+      alliance_affiliation,
+      alliance_role,
+      alliance_seniority,
+      government_type,
+      government_decision,
+      national_religion,
+      religion_decision,
+      nation_team,
+      nation_created,
+      technology,
+      infrastructure,
+      tax_rate,
+      area_of_influence,
+      purchased_land,
+      land_modifiers,
+      land_growth,
+      war_peace_preference,
+      resource1,
+      resource2,
+      resource3,
+      resource4,
+      resource5,
+      resource6,
+      resource7,
+      resource8,
+      resource9,
+      resource10,
+      resource11,
+      resource12,
+      native_resource_1,
+      native_resource_2,
+      trade_slots_filled,
+      trade_slots_max,
+      airports,
+      banks,
+      barracks,
+      churches,
+      clinics,
+      drydocks,
+      factories,
+      foreign_ministries,
+      forward_operating_bases,
+      guerrilla_camps,
+      harbors,
+      hospitals,
+      intelligence_agencies,
+      labor_camps,
+      missile_defenses,
+      munitions_factories,
+      naval_academies,
+      naval_construction_yards,
+      offices_of_propaganda,
+      police_headquarters,
+      prisons,
+      rehabilitation_facilities,
+      satellites,
+      schools,
+      shipyards,
+      stadiums,
+      universities,
+      wonder_agriculture_dev,
+      wonder_anti_air_defense,
+      wonder_central_intel,
+      wonder_disaster_relief,
+      wonder_emp_weaponization,
+      wonder_federal_aid,
+      wonder_federal_reserve,
+      wonder_foreign_air_base,
+      wonder_foreign_army_base,
+      wonder_foreign_naval_base,
+      wonder_great_monument,
+      wonder_great_temple,
+      wonder_great_university,
+      wonder_hidden_nuke_silo,
+      wonder_interceptor_missile,
+      wonder_internet,
+      wonder_interstate_system,
+      wonder_manhattan_project,
+      wonder_mars_base,
+      wonder_mars_colony,
+      wonder_mars_mine,
+      wonder_mining_consortium,
+      wonder_movie_industry,
+      wonder_national_cemetery,
+      wonder_national_environment_office,
+      wonder_national_research_lab,
+      wonder_national_war_memorial,
+      wonder_nuclear_power,
+      wonder_pentagon,
+      wonder_political_lobbyists,
+      wonder_scientific_development,
+      wonder_social_security,
+      wonder_space_program,
+      wonder_stock_market,
+      wonder_strategic_defense,
+      wonder_superior_logistical,
+      wonder_universal_health,
+      wonder_weapons_research,
+      environment,
+      nation_strength,
+      defcon_level,
+      threat_level,
+      num_soldiers,
+      effective_soldiers,
+      defending_soldiers,
+      deployed_soldiers,
+      num_tanks,
+      defending_tanks,
+      deployed_tanks,
+      aircraft,
+      cruise_missiles,
+      navy_vessels,
+      nuclear_weapons,
+      num_spies,
+      soldiers_lost,
+      attacking_casualties,
+      defending_casualties,
+      total_population,
+      population_density,
+      military_personnel,
+      working_citizens,
+      criminals,
+      rehabbed_criminals,
+      population_happiness,
+      crime_index,
+      crime_prevention_score,
+      avg_gross_income,
+      avg_income_taxes,
+      avg_net_income,
+      total_income_taxes_collected,
+      total_expenses,
+      bills_paid,
+      purchases_over_time,
+      current_dinars
+    ) VALUES (" . str_repeat("?,", 137) . "?)";  // 138 placeholders
     $insertNationStmt = mysqli_prepare($con, $insertNationSql);
     if (!$insertNationStmt) {
         $err = mysqli_error($con);
         log_debug("nation_data INSERT preparation error: " . $err);
         $nationResponse = ["success" => false, "error" => "nation_data INSERT preparation error: " . $err];
     } else {
-        // Bind parameters. The binding string is long. For clarity, here’s a sample binding string.
-        // You must match each parameter type accordingly. Assume:
-        // 'i' for integer, 's' for string, 'd' for double (decimal).
-        // This is an example; you must adjust according to your schema.
-        $bindString = "issssssssssssssssss" .  
-                      "ssssssssssss" .           // 12 resource fields
-                      "ss" .                     // native resources
-                      "ii" .                     // trade slots
-                      "iiiiiiiiiiiiiiiii" .      // improvements (17 fields)
-                      "ssssssssssssssssssssssssssssssssssssssssssssssss" . // national wonders (40 fields)
-                      "dd" .                    // environment, nation_strength (doubles)
-                      "i" .                     // defcon_level
-                      "s" .                     // threat_level
-                      "iiii" .                  // num_soldiers, effective_soldiers, defending_soldiers, deployed_soldiers
-                      "iii" .                   // num_tanks, defending_tanks, deployed_tanks
-                      "iii" .                   // aircraft, cruise_missiles, navy_vessels
-                      "ii" .                    // nuclear_weapons, num_spies
-                      "ddd" .                   // soldiers_lost, attacking_casualties, defending_casualties (as doubles)
-                      "i" .                     // total_population
-                      "d" .                     // population_density
-                      "iiiiiiiii" .             // military_personnel, working_citizens, criminals, rehabbed_criminals, population_happiness, crime_index, crime_prevention_score, avg_gross_income, avg_income_taxes (some as ints, some as doubles)
-                      "d" .                     // avg_net_income
-                      "ddddd";                  // total_income_taxes_collected, total_expenses, bills_paid, purchases_over_time, current_dinars
-        // NOTE: The bind string above is just an illustrative example. In practice you must create a bind string that exactly matches the number and types of parameters in your INSERT.
-        
-        // For simplicity in this example, we'll assume your $nd array has all keys and we bind them in order.
-        // In a real-world scenario, you might generate the bind parameters dynamically.
-        mysqli_stmt_bind_param($insertNationStmt, $bindString,
-            $nd['nation_id'],
-            $nd['ruler'],
-            $nd['nation_name'],
-            $nd['last_donation'],
-            $nd['alliance_affiliation'],
-            $nd['alliance_role'],
-            $nd['alliance_seniority'],
-            $nd['government_type'],
-            $nd['government_decision'],
-            $nd['national_religion'],
-            $nd['religion_decision'],
-            $nd['nation_team'],
-            $nd['nation_created'],
-            $nd['technology'],
-            $nd['infrastructure'],
-            $nd['tax_rate'],
-            $nd['area_of_influence'],
-            $nd['purchased_land'],
-            $nd['land_modifiers'],
-            $nd['land_growth'],
-            $nd['war_peace_preference'],
-            $nd['resource1'],
-            $nd['resource2'],
-            $nd['resource3'],
-            $nd['resource4'],
-            $nd['resource5'],
-            $nd['resource6'],
-            $nd['resource7'],
-            $nd['resource8'],
-            $nd['resource9'],
-            $nd['resource10'],
-            $nd['resource11'],
-            $nd['resource12'],
-            $nd['native_resource_1'],
-            $nd['native_resource_2'],
-            $nd['trade_slots_filled'],
-            $nd['trade_slots_max'],
-            $nd['airports'],
-            $nd['banks'],
-            $nd['barracks'],
-            $nd['churches'],
-            $nd['clinics'],
-            $nd['drydocks'],
-            $nd['factories'],
-            $nd['foreign_ministries'],
-            $nd['forward_operating_bases'],
-            $nd['guerrilla_camps'],
-            $nd['harbors'],
-            $nd['hospitals'],
-            $nd['intelligence_agencies'],
-            $nd['labor_camps'],
-            $nd['missile_defenses'],
-            $nd['munitions_factories'],
-            $nd['naval_academies'],
-            $nd['naval_construction_yards'],
-            $nd['offices_of_propaganda'],
-            $nd['police_headquarters'],
-            $nd['prisons'],
-            $nd['rehabilitation_facilities'],
-            $nd['satellites'],
-            $nd['schools'],
-            $nd['shipyards'],
-            $nd['stadiums'],
-            $nd['universities'],
-            $nd['wonder_agriculture_dev'],
-            $nd['wonder_anti_air_defense'],
-            $nd['wonder_central_intel'],
-            $nd['wonder_disaster_relief'],
-            $nd['wonder_emp_weaponization'],
-            $nd['wonder_federal_aid'],
-            $nd['wonder_federal_reserve'],
-            $nd['wonder_foreign_air_base'],
-            $nd['wonder_foreign_army_base'],
-            $nd['wonder_foreign_naval_base'],
-            $nd['wonder_great_monument'],
-            $nd['wonder_great_temple'],
-            $nd['wonder_great_university'],
-            $nd['wonder_hidden_nuke_silo'],
-            $nd['wonder_interceptor_missile'],
-            $nd['wonder_internet'],
-            $nd['wonder_interstate_system'],
-            $nd['wonder_manhattan_project'],
-            $nd['wonder_mars_base'],
-            $nd['wonder_mars_colony'],
-            $nd['wonder_mars_mine'],
-            $nd['wonder_mining_consortium'],
-            $nd['wonder_movie_industry'],
-            $nd['wonder_national_cemetery'],
-            $nd['wonder_national_environment_office'],
-            $nd['wonder_national_research_lab'],
-            $nd['wonder_national_war_memorial'],
-            $nd['wonder_nuclear_power'],
-            $nd['wonder_pentagon'],
-            $nd['wonder_political_lobbyists'],
-            $nd['wonder_scientific_development'],
-            $nd['wonder_social_security'],
-            $nd['wonder_space_program'],
-            $nd['wonder_stock_market'],
-            $nd['wonder_strategic_defense'],
-            $nd['wonder_superior_logistical'],
-            $nd['wonder_universal_health'],
-            $nd['wonder_weapons_research'],
-            $nd['environment'],
-            $nd['nation_strength'],
-            $nd['defcon_level'],
-            $nd['threat_level'],
-            $nd['num_soldiers'],
-            $nd['effective_soldiers'],
-            $nd['defending_soldiers'],
-            $nd['deployed_soldiers'],
-            $nd['num_tanks'],
-            $nd['defending_tanks'],
-            $nd['deployed_tanks'],
-            $nd['aircraft'],
-            $nd['cruise_missiles'],
-            $nd['navy_vessels'],
-            $nd['nuclear_weapons'],
-            $nd['num_spies'],
-            $nd['soldiers_lost'],
-            $nd['attacking_casualties'],
-            $nd['defending_casualties'],
-            $nd['total_population'],
-            $nd['population_density'],
-            $nd['military_personnel'],
-            $nd['working_citizens'],
-            $nd['criminals'],
-            $nd['rehabbed_criminals'],
-            $nd['population_happiness'],
-            $nd['crime_index'],
-            $nd['crime_prevention_score'],
-            $nd['avg_gross_income'],
-            $nd['avg_income_taxes'],
-            $nd['avg_net_income'],
-            $nd['total_income_taxes_collected'],
-            $nd['total_expenses'],
-            $nd['bills_paid'],
-            $nd['purchases_over_time'],
-            $nd['current_dinars']
-        );
-        if (mysqli_stmt_execute($insertNationStmt)) {
-            $nationResponse = ["success" => true];
-            log_debug("Nation data inserted successfully.");
-        } else {
-            $nationResponse = ["success" => false, "error" => mysqli_stmt_error($insertNationStmt)];
-            log_debug("Nation data insertion error: " . mysqli_stmt_error($insertNationStmt));
-        }
-        mysqli_stmt_close($insertNationStmt);
+        // Build the array of values in the correct order.
+        $values = [
+          $nationData['nation_id'] ?? null,
+          $nationData['ruler'] ?? null,
+          $nationData['nation_name'] ?? null,
+          $nationData['last_donation'] ?? null,
+          $nationData['alliance_affiliation'] ?? null,
+          $nationData['alliance_role'] ?? null,
+          $nationData['alliance_seniority'] ?? null,
+          $nationData['government_type'] ?? null,
+          $nationData['government_decision'] ?? null,
+          $nationData['national_religion'] ?? null,
+          $nationData['religion_decision'] ?? null,
+          $nationData['nation_team'] ?? null,
+          $nationData['nation_created'] ?? null,
+          $nationData['technology'] ?? null,
+          $nationData['infrastructure'] ?? null,
+          $nationData['tax_rate'] ?? null,
+          $nationData['area_of_influence'] ?? null,
+          $nationData['purchased_land'] ?? null,
+          $nationData['land_modifiers'] ?? null,
+          $nationData['land_growth'] ?? null,
+          $nationData['war_peace_preference'] ?? null,
+          $nationData['resource1'] ?? null,
+          $nationData['resource2'] ?? null,
+          $nationData['resource3'] ?? null,
+          $nationData['resource4'] ?? null,
+          $nationData['resource5'] ?? null,
+          $nationData['resource6'] ?? null,
+          $nationData['resource7'] ?? null,
+          $nationData['resource8'] ?? null,
+          $nationData['resource9'] ?? null,
+          $nationData['resource10'] ?? null,
+          $nationData['resource11'] ?? null,
+          $nationData['resource12'] ?? null,
+          $nationData['native_resource_1'] ?? null,
+          $nationData['native_resource_2'] ?? null,
+          $nationData['trade_slots_filled'] ?? null,
+          $nationData['trade_slots_max'] ?? null,
+          $nationData['airports'] ?? null,
+          $nationData['banks'] ?? null,
+          $nationData['barracks'] ?? null,
+          $nationData['churches'] ?? null,
+          $nationData['clinics'] ?? null,
+          $nationData['drydocks'] ?? null,
+          $nationData['factories'] ?? null,
+          $nationData['foreign_ministries'] ?? null,
+          $nationData['forward_operating_bases'] ?? null,
+          $nationData['guerrilla_camps'] ?? null,
+          $nationData['harbors'] ?? null,
+          $nationData['hospitals'] ?? null,
+          $nationData['intelligence_agencies'] ?? null,
+          $nationData['labor_camps'] ?? null,
+          $nationData['missile_defenses'] ?? null,
+          $nationData['munitions_factories'] ?? null,
+          $nationData['naval_academies'] ?? null,
+          $nationData['naval_construction_yards'] ?? null,
+          $nationData['offices_of_propaganda'] ?? null,
+          $nationData['police_headquarters'] ?? null,
+          $nationData['prisons'] ?? null,
+          $nationData['rehabilitation_facilities'] ?? null,
+          $nationData['satellites'] ?? null,
+          $nationData['schools'] ?? null,
+          $nationData['shipyards'] ?? null,
+          $nationData['stadiums'] ?? null,
+          $nationData['universities'] ?? null,
+          $nationData['wonder_agriculture_dev'] ?? "no",
+          $nationData['wonder_anti_air_defense'] ?? "no",
+          $nationData['wonder_central_intel'] ?? "no",
+          $nationData['wonder_disaster_relief'] ?? "no",
+          $nationData['wonder_emp_weaponization'] ?? "no",
+          $nationData['wonder_federal_aid'] ?? "no",
+          $nationData['wonder_federal_reserve'] ?? "no",
+          $nationData['wonder_foreign_air_base'] ?? "no",
+          $nationData['wonder_foreign_army_base'] ?? "no",
+          $nationData['wonder_foreign_naval_base'] ?? "no",
+          $nationData['wonder_great_monument'] ?? "no",
+          $nationData['wonder_great_temple'] ?? "no",
+          $nationData['wonder_great_university'] ?? "no",
+          $nationData['wonder_hidden_nuke_silo'] ?? "no",
+          $nationData['wonder_interceptor_missile'] ?? "no",
+          $nationData['wonder_internet'] ?? "no",
+          $nationData['wonder_interstate_system'] ?? "no",
+          $nationData['wonder_manhattan_project'] ?? "no",
+          $nationData['wonder_mars_base'] ?? "no",
+          $nationData['wonder_mars_colony'] ?? "no",
+          $nationData['wonder_mars_mine'] ?? "no",
+          $nationData['wonder_mining_consortium'] ?? "no",
+          $nationData['wonder_movie_industry'] ?? "no",
+          $nationData['wonder_national_cemetery'] ?? "no",
+          $nationData['wonder_national_environment_office'] ?? "no",
+          $nationData['wonder_national_research_lab'] ?? "no",
+          $nationData['wonder_national_war_memorial'] ?? "no",
+          $nationData['wonder_nuclear_power'] ?? "no",
+          $nationData['wonder_pentagon'] ?? "no",
+          $nationData['wonder_political_lobbyists'] ?? "no",
+          $nationData['wonder_scientific_development'] ?? "no",
+          $nationData['wonder_social_security'] ?? "no",
+          $nationData['wonder_space_program'] ?? "no",
+          $nationData['wonder_stock_market'] ?? "no",
+          $nationData['wonder_strategic_defense'] ?? "no",
+          $nationData['wonder_superior_logistical'] ?? "no",
+          $nationData['wonder_universal_health'] ?? "no",
+          $nationData['wonder_weapons_research'] ?? "no",
+          $nationData['environment'] ?? null,
+          $nationData['nation_strength'] ?? null,
+          $nationData['defcon_level'] ?? null,
+          $nationData['threat_level'] ?? null,
+          $nationData['num_soldiers'] ?? null,
+          $nationData['effective_soldiers'] ?? null,
+          $nationData['defending_soldiers'] ?? null,
+          $nationData['deployed_soldiers'] ?? null,
+          $nationData['num_tanks'] ?? null,
+          $nationData['defending_tanks'] ?? null,
+          $nationData['deployed_tanks'] ?? null,
+          $nationData['aircraft'] ?? null,
+          $nationData['cruise_missiles'] ?? null,
+          $nationData['navy_vessels'] ?? null,
+          $nationData['nuclear_weapons'] ?? null,
+          $nationData['num_spies'] ?? null,
+          $nationData['soldiers_lost'] ?? null,
+          $nationData['attacking_casualties'] ?? null,
+          $nationData['defending_casualties'] ?? null,
+          $nationData['total_population'] ?? null,
+          $nationData['population_density'] ?? null,
+          $nationData['military_personnel'] ?? null,
+          $nationData['working_citizens'] ?? null,
+          $nationData['criminals'] ?? null,
+          $nationData['rehabbed_criminals'] ?? null,
+          $nationData['population_happiness'] ?? null,
+          $nationData['crime_index'] ?? null,
+          $nationData['crime_prevention_score'] ?? null,
+          $nationData['avg_gross_income'] ?? null,
+          $nationData['avg_income_taxes'] ?? null,
+          $nationData['avg_net_income'] ?? null,
+          $nationData['total_income_taxes_collected'] ?? null,
+          $nationData['total_expenses'] ?? null,
+          $nationData['bills_paid'] ?? null,
+          $nationData['purchases_over_time'] ?? null,
+          $nationData['current_dinars'] ?? null
+       ];
+       if(count($values) !== 138) {
+         log_debug("Value count mismatch: " . count($values) . " values provided, expected 138.");
+       }
+       $types = str_repeat("s", 138);
+       mysqli_stmt_bind_param($insertNationStmt, $types, ...$values);
+       if (!mysqli_stmt_execute($insertNationStmt)) {
+         $err = mysqli_stmt_error($insertNationStmt);
+         log_debug("Error inserting nation data: " . $err);
+         $nationResponse = ["success" => false, "error" => "Error inserting nation data: " . $err];
+       } else {
+         mysqli_commit($con);
+         $nationResponse = ["success" => true];
+         log_debug("Nation data inserted successfully.");
+       }
+       mysqli_stmt_close($insertNationStmt);
     }
 } else {
     $nationResponse = ["success" => true, "message" => "No nation data provided"];
@@ -673,8 +748,6 @@ if (isset($data['nationData']) && is_array($data['nationData'])) {
 // ------------------------------
 // Close the database connection.
 mysqli_close($con);
-
-// Flush output buffering.
 ob_end_flush();
 
 // Return a JSON response with results from all modules.
@@ -685,7 +758,6 @@ echo json_encode([
         "war_results" => $warResponse,
         "nation_data" => $nationResponse
     ],
-    "public_ip" => $publicIp,
-    "debug" => $debugMessages
+    "public_ip" => $publicIp
 ]);
 ?>
