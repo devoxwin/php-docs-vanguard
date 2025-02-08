@@ -83,7 +83,9 @@ log_debug("CA certificate validated successfully.");
 // Retrieve Server Public IP (for debugging)
 // ------------------------------
 $publicIp = @file_get_contents('https://api.ipify.org');
-if ($publicIp === false) { $publicIp = "unknown"; }
+if ($publicIp === false) { 
+    $publicIp = "unknown"; 
+}
 log_debug("Server Public IP: " . $publicIp);
 
 // ------------------------------
@@ -253,7 +255,6 @@ if (isset($data['battles']) && is_array($data['battles'])) {
 // ------------------------------
 // Module 2: War Damage Data (Upsert)
 // Expect war data to be sent under the key "wardata".
-// ------------------------------
 if (isset($data['wardata']) && is_array($data['wardata'])) {
     log_debug("Processing war data.");
     $selectWarSql = "SELECT war_id FROM war_results WHERE war_id = ? LIMIT 1";
@@ -325,7 +326,6 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                     mysqli_stmt_store_result($selectWarStmt);
                     $exists = mysqli_stmt_num_rows($selectWarStmt) > 0;
                     mysqli_stmt_free_result($selectWarStmt);
-
                     if ($exists) {
                         mysqli_stmt_bind_param(
                             $updateWarStmt,
@@ -436,7 +436,6 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
 if (isset($data['nationData']) && is_array($data['nationData'])) {
     log_debug("Processing nation drill display data (Module 3).");
     $nationData = $data['nationData'];
-    // Prepare the INSERT statement for the nation_data table.
     $insertNationSql = "INSERT INTO nation_data (
       nation_id,
       ruler,
@@ -583,14 +582,14 @@ if (isset($data['nationData']) && is_array($data['nationData'])) {
         log_debug("nation_data INSERT preparation error: " . $err);
         $nationResponse = ["success" => false, "error" => "nation_data INSERT preparation error: " . $err];
     } else {
-        // Build the array of values in the correct order.
+        // Build the array of values in the same order as the columns above.
         $values = [
           $nationData['nation_id'] ?? null,
           $nationData['ruler'] ?? null,
           $nationData['nation_name'] ?? null,
           $nationData['last_donation'] ?? null,
           $nationData['alliance_affiliation'] ?? null,
-          $nationData['alliance_role'] ?? null,
+          $nationData['alliance_role'] ?? '',  // Ensure this is not null.
           $nationData['alliance_seniority'] ?? null,
           $nationData['government_type'] ?? null,
           $nationData['government_decision'] ?? null,
