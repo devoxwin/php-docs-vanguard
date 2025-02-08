@@ -272,7 +272,7 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
             defender_nation_name, defender_ruler_name, defender_alliance, defender_soldiers_lost, defender_tanks_lost, 
             defender_cruise_missiles_lost, defender_aircraft_lost, defender_navy_lost, defender_infrastructure_lost, 
             defender_technology_lost, defender_land_lost, defender_strength_lost
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        ) VALUES (" . str_repeat("?,", 30) . "?)";  // 31 placeholders
         $insertWarStmt = mysqli_prepare($con, $insertWarSql);
         if (!$insertWarStmt) {
             $err = mysqli_error($con);
@@ -320,6 +320,14 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                 mysqli_autocommit($con, false);
                 $allWarSuccess = true;
                 $warErrors = [];
+                // The correct type string for 31 columns (see explanation above)
+                $typeString = "issssissssiiiii" . "ssss" . "sss" . "iiiii" . "ssss"; 
+                // Remove any spaces from $typeString if present:
+                $typeString = str_replace(" ", "", $typeString);
+                // Verify length is 31:
+                if (strlen($typeString) !== 31) {
+                    log_debug("War type string length is " . strlen($typeString) . ", expected 31.");
+                }
                 foreach ($data['wardata'] as $index => $war) {
                     mysqli_stmt_bind_param($selectWarStmt, "i", $war['war_id']);
                     mysqli_stmt_execute($selectWarStmt);
@@ -329,7 +337,7 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                     if ($exists) {
                         mysqli_stmt_bind_param(
                             $updateWarStmt,
-                            "ssssisssiiiiiiidddiisssiiiiiiidi",
+                            $typeString,
                             $war['war_status'],
                             $war['war_reason'],
                             $war['war_declaration_date'],
@@ -370,7 +378,7 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                     } else {
                         mysqli_stmt_bind_param(
                             $insertWarStmt,
-                            "issssisssiiiiiiidddiisssiiiiiiid",
+                            $typeString,
                             $war['war_id'],
                             $war['war_status'],
                             $war['war_reason'],
@@ -589,7 +597,7 @@ if (isset($data['nationData']) && is_array($data['nationData'])) {
           $nationData['nation_name'] ?? null,
           $nationData['last_donation'] ?? null,
           $nationData['alliance_affiliation'] ?? null,
-          $nationData['alliance_role'] ?? '',  // Ensure this is not null.
+          $nationData['alliance_role'] ?? '',  // default empty string if not provided
           $nationData['alliance_seniority'] ?? null,
           $nationData['government_type'] ?? null,
           $nationData['government_decision'] ?? null,
