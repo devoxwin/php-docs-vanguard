@@ -440,6 +440,8 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
 // Module 3: Nation Drill Display Data (Insert)
 // Expect nation data to be sent under the key "nationData".
 if (isset($data['nationData']) && is_array($data['nationData'])) {
+    // Remove any leading hyphens and whitespace.
+    $nationData['national_religion'] = preg_replace('/^-+\s*/', '', $nationData['national_religion']);
     log_debug("Processing nation drill display data (Module 3).");
     $nationData = $data['nationData'];
 
