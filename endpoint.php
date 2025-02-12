@@ -321,7 +321,7 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                 mysqli_autocommit($con, false);
                 $allWarSuccess = true;
                 $warErrors = [];
-                // Define a type string for 31 parameters. All are bound as strings.
+                // Define a type string for 31 parameters. All bound as strings.
                 $typeString = str_repeat("s", 31);
                 if (strlen($typeString) !== 31) {
                     log_debug("War type string length is " . strlen($typeString) . ", expected 31.");
@@ -442,6 +442,18 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
 if (isset($data['nationData']) && is_array($data['nationData'])) {
     log_debug("Processing nation drill display data (Module 3).");
     $nationData = $data['nationData'];
+
+    // IMPORTANT: Convert nation_created field.
+    if (isset($nationData['nation_created']) && !empty($nationData['nation_created'])) {
+        $dt = DateTime::createFromFormat('n/j/Y g:i:s A', $nationData['nation_created']);
+        if ($dt !== false) {
+            $nationData['nation_created'] = $dt->format('Y-m-d H:i:s');
+        } else {
+            log_debug("Failed to parse nation_created: " . $nationData['nation_created']);
+            $nationData['nation_created'] = null;
+        }
+    }
+
     $insertNationSql = "INSERT INTO nation_data (
       nation_id,
       ruler,
@@ -581,22 +593,20 @@ if (isset($data['nationData']) && is_array($data['nationData'])) {
       bills_paid,
       purchases_over_time,
       current_dinars
-    ) VALUES (" . str_repeat("?,", 137) . "?)";  // 138 placeholders
+    ) VALUES (" . str_repeat("?,", 137) . "?)";
     $insertNationStmt = mysqli_prepare($con, $insertNationSql);
     if (!$insertNationStmt) {
         $err = mysqli_error($con);
         log_debug("nation_data INSERT preparation error: " . $err);
         $nationResponse = ["success" => false, "error" => "nation_data INSERT preparation error: " . $err];
     } else {
-        // Build the array of values in the same order as the columns above.
-        // For required numeric/text columns that must not be null, provide default values.
-        $values = [
+       $values = [
           $nationData['nation_id'] ?? null,
           $nationData['ruler'] ?? '',
           $nationData['nation_name'] ?? '',
           $nationData['last_donation'] ?? '',
           $nationData['alliance_affiliation'] ?? '',
-          $nationData['alliance_role'] ?? '',  // default to empty string if not provided
+          $nationData['alliance_role'] ?? '',
           $nationData['alliance_seniority'] ?? '',
           $nationData['government_type'] ?? '',
           $nationData['government_decision'] ?? '',
@@ -608,7 +618,7 @@ if (isset($data['nationData']) && is_array($data['nationData'])) {
           $nationData['infrastructure'] ?? '0',
           $nationData['tax_rate'] ?? '0',
           $nationData['area_of_influence'] ?? '0',
-          $nationData['purchased_land'] ?? '0',  // default to 0 to avoid NOT NULL error
+          $nationData['purchased_land'] ?? '0',
           $nationData['land_modifiers'] ?? '0',
           $nationData['land_growth'] ?? '0',
           $nationData['war_peace_preference'] ?? '',
