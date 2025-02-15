@@ -310,7 +310,8 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                 defender_infrastructure_lost = ?,
                 defender_technology_lost = ?,
                 defender_land_lost = ?,
-                defender_strength_lost = ?
+                defender_strength_lost = ?,
+                war_id = ?
                 WHERE war_id = ?";
             $updateWarStmt = mysqli_prepare($con, $updateWarSql);
             if (!$updateWarStmt) {
@@ -321,10 +322,9 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
                 mysqli_autocommit($con, false);
                 $allWarSuccess = true;
                 $warErrors = [];
-                // Define a type string for 31 parameters. All bound as strings.
                 $typeString = str_repeat("s", 31);
                 if (strlen($typeString) !== 31) {
-                    log_debug("War type string length is " . strlen($typeString) . ", expected 31.");
+                    log_debug("War type string length is " + typeString.length + ", expected 31.");
                 }
                 foreach ($data['wardata'] as $index => $war) {
                     mysqli_stmt_bind_param($selectWarStmt, "i", $war['war_id']);
@@ -440,8 +440,6 @@ if (isset($data['wardata']) && is_array($data['wardata'])) {
 // Module 3: Nation Drill Display Data (Insert)
 // Expect nation data to be sent under the key "nationData".
 if (isset($data['nationData']) && is_array($data['nationData'])) {
-    // Remove any leading hyphens and whitespace.
-    $nationData['national_religion'] = preg_replace('/^-+\s*/', '', $nationData['national_religion']);
     log_debug("Processing nation drill display data (Module 3).");
     $nationData = $data['nationData'];
 
@@ -454,6 +452,11 @@ if (isset($data['nationData']) && is_array($data['nationData'])) {
             log_debug("Failed to parse nation_created: " . $nationData['nation_created']);
             $nationData['nation_created'] = null;
         }
+    }
+    
+    // Remove leading hyphens and spaces from national_religion.
+    if (isset($nationData['national_religion'])) {
+        $nationData['national_religion'] = preg_replace('/^-+\s*/', '', $nationData['national_religion']);
     }
 
     $insertNationSql = "INSERT INTO nation_data (
@@ -623,7 +626,21 @@ if (isset($data['nationData']) && is_array($data['nationData'])) {
           $nationData['purchased_land'] ?? '0',
           $nationData['land_modifiers'] ?? '0',
           $nationData['land_growth'] ?? '0',
-          $nationData['war_peace_preference'] ?? '',
+          // War/Peace Preference extraction: If text contains "not an option", set to "Peace Mode", else "War Mode"
+          (function() {
+              let wpCell = Array.from(document.querySelectorAll("td")).find(td => td.innerText.trim().startsWith("War/Peace Preference:"));
+              if (wpCell) {
+                  let wpText = wpCell.innerText.replace("War/Peace Preference:", "").trim();
+                  if (/not an option/i.test(wpText)) {
+                      return "Peace Mode";
+                  } else if (/an option/i.test(wpText)) {
+                      return "War Mode";
+                  } else {
+                      return "";
+                  }
+              }
+              return "";
+          })(),
           $nationData['resource1'] ?? '',
           $nationData['resource2'] ?? '',
           $nationData['resource3'] ?? '',
